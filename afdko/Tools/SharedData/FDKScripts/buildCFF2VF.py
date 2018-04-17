@@ -285,8 +285,10 @@ class CFF2GlyphData(object):
         # where n is the number of arguments for the opName,
         # and k is the number of master designs.
         supportHints = True
-        self.opList = opList = self.buildOpList(0, supportHints)
-        numOps = len(opList)
+        opLists = [self.buildOpList(i, supportHints)
+                        for i in range(len(self.charstringList))]
+        numOps = max( [len(opListn) for opListn in opLists])
+        self.opList = opList = opLists[0]
         # For each other master in turn,
         #  add the args for each opName to pointList
         # deal with incompatible path lists because:
@@ -294,11 +296,31 @@ class CFF2GlyphData(object):
         blendError = False
         i = 1
         while i < len(self.charstringList):
-            opList2 = self.buildOpList(i, supportHints)
+            opList2 = opLists[i]
             i += 1
             opIndex = op2Index = 0
             while opIndex < numOps:
-                masterOp, masterPointList = opList[opIndex]
+                try:
+                    masterOp, masterPointList = opList[opIndex]
+                except IndexError:
+                    masterOp, masterPointList = opList2[op2Index-1]
+                    token, pointList = opList2[op2Index]
+                    if masterOp == 'rrcurveto' and token == 'rlineto':
+                        # this is fixable - last op in this font is a 
+                        # path closing line-to, master doesn't have that.
+                        masterOp = token
+                        masterPointList = masterPointList[-2:] # a zero length lineto.
+                    else:
+                        print("Path mismatch: master has fewer points. "
+                              "Glyph name: %s. " % self.glyphName,
+                              "font index: %s. " % (i - 1),
+                              "master font path: %s. " %
+                              self.masterFontList[0].srcPath,
+                              "Delta font path: %s." %
+                              self.masterFontList[i - 1].srcPath)
+                        blendError = True
+                        break
+
                 if (not supportHints) and masterOp in self.hintOpList:
                     opIndex += 1
                     continue
@@ -307,15 +329,22 @@ class CFF2GlyphData(object):
                 try:
                     token, pointList = opList2[op2Index]
                 except IndexError:
-                    print("Path mismatch: different number of points. "
-                          "Glyph name: %s. " % self.glyphName,
-                          "font index: %s. " % i - 1,
-                          "master font path: %s. " %
-                          self.masterFontList[0].srcPath,
-                          "Delta font path: %s." %
-                          self.masterFontList[i - 1].srcPath)
-                    blendError = True
-                    break
+                    token, pointList = opList2[op2Index-1]
+                    if token == 'rrcurveto' and masterOp == 'rlineto':
+                        # this is fixable - last op in master is a 
+                        # path closing line-to, this font doesn't have that.
+                        token = masterOp
+                        pointList = pointList[-2:] # a zero length lineto.
+                    else:
+                        print("Path mismatch: font has fewer points. "
+                              "Glyph name: %s. " % self.glyphName,
+                              "font index: %s. " % (i - 1),
+                              "master font path: %s. " %
+                              self.masterFontList[0].srcPath,
+                              "Delta font path: %s." %
+                              self.masterFontList[i - 1].srcPath)
+                        blendError = True
+                        break
 
                 if (not supportHints) and token in self.hintOpList:
                     op2Index += 1
@@ -326,6 +355,18 @@ class CFF2GlyphData(object):
                 elif masterOp == 'rlineto' and token == 'rrcurveto':
                     self.updateLineToCurve(masterPointList)
                     opList[opIndex] = ['rrcurveto', masterPointList]
+                elif (masterOp == 'rmoveto' and token == 'rlineto'
+                                and opList2[op2Index+1][0] == 'rmoveto'
+                                and opList[op2Index-1][0] == 'rrcurveto'):
+                    # font has a path closing lineto.
+                    masterOp = 'rlineto'
+                    opList.insert(op2Index, [masterOp, masterPointList])
+                elif (token == 'rmoveto' and masterOp == 'rlineto'
+                                and opList[op2Index+1][0] == 'rmoveto'
+                                and opList2[op2Index-1][0] == 'rrcurveto'):
+                    # default font has a path closing lineto.
+                    token = 'rlineto'
+                    opList2.insert(op2Index, [token, pointList])
                 elif token != masterOp:
                     if supportHints and (masterOp in self.hintOpList or (
                        token in self.hintOpList)):
@@ -337,7 +378,7 @@ class CFF2GlyphData(object):
                         i = 1
                         break
                     print("Path mismatch in glyph %s, master index %s. %s." % (
-                          self.glyphName, i - 1,
+                          self.glyphName, (i - 1),
                           self.masterFontList[i - 1].srcPath))
                     blendError = True
                     break
