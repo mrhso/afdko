@@ -1089,18 +1089,22 @@ static void readVarStore(cfrCtx h)
     
     if (h->cff2.varStore) {
         var_freeItemVariationStore(&h->cb.shstm, h->cff2.varStore);
-        h->cff2.varStore = 0;
     }
     
+    h->top.varStore = h->cff2.varStore = NULL;
     srcSeek(h, h->region.VarStore.begin);
     length = (unsigned long)read2(h);
     h->region.VarStore.end = vstoreStart + length;
-    h->cff2.varStore = var_loadItemVariationStore(&h->cb.shstm, (unsigned long)vstoreStart, length, 0);
-	if (!h->cff2.varStore)
-		return;
+    if (length > 0)
+    {
+        h->cff2.varStore = var_loadItemVariationStore(&h->cb.shstm, (unsigned long)vstoreStart, length, 0);
+    }
+    
+    if (!h->cff2.varStore)
+        return;
     h->cff2.regionListCount = var_getIVSRegionCount(h->cff2.varStore);
-	if (h->cff2.regionListCount > CFF2_MAX_MASTERS)
-		fatal(h, cfrErrGeometry);
+    if (h->cff2.regionListCount > CFF2_MAX_MASTERS)
+        fatal(h, cfrErrGeometry);
     h->top.varStore = h->cff2.varStore;
     /* pre-calculate scalars for all regions for the current weight vector */
     var_calcRegionScalars(&h->cb.shstm, h->cff2.varStore, &h->cff2.axisCount, h->cff2.ndv, h->cff2.scalars);

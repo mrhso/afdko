@@ -1754,7 +1754,7 @@ static void cff_BegFont(txCtx h, abfTopDict *top)
         h->cb.glyph = cfwGlyphCallbacks;
         h->cb.glyph.direct_ctx = h->cfw.ctx;
 
-        if (!(h->cfw.flags & CFW_WRITE_CFF2))
+        if ((!(h->cfw.flags & CFW_WRITE_CFF2)) ||  (top->varStore == NULL))
         {
             /* This keeps these callbacks from being used when
              writing a regular CFF, and avoids the overhead of porcessing the
@@ -1771,6 +1771,7 @@ static void cff_BegFont(txCtx h, abfTopDict *top)
     if (h->flags & PATH_SUPRESS_HINTS)
     {
         h->cb.glyph.stem = NULL;
+        h->cb.glyph.stemVF = NULL;
         h->cb.glyph.flex = NULL;
     }
 }
@@ -4846,16 +4847,24 @@ static void dcf_getvsIndices(txCtx h, const ctlRegion *region)
     unsigned int i = 0;
     unsigned short ivdSubtableCount;
     dnaDCL(unsigned long, ivdSubtableOffsets);
+    long length;
     long ivsStart = region->begin + 2;
     
     if (region->begin <= 0)
         return;
     bufSeek(h, region->begin);
-    read2(h); /* length */
-    read2(h); /* format */
-    
-    read4(h); /* regionListOffset */
-    ivdSubtableCount = read2(h);
+    length = read2(h); /* length */
+    if (length == 0)
+    {
+        ivdSubtableCount = 0;
+    }
+    else
+    {
+        read2(h); /* format */
+        
+        read4(h); /* regionListOffset */
+        ivdSubtableCount = read2(h);
+    }
     
     dnaINIT(h->ctx.dna, ivdSubtableOffsets, ivdSubtableCount, ivdSubtableCount);
     dnaSET_CNT(ivdSubtableOffsets, ivdSubtableCount);
@@ -4907,6 +4916,12 @@ static void dcf_DumpVarStore(txCtx h, const ctlRegion *region)
         bufSeek(h, region->begin);
         length = read2(h);
         fprintf(fp, "length =%u\n", length);
+        if (length == 0)
+        {
+            fprintf(fp, "\n");
+            return;
+        }
+        
         fprintf(fp, "format = %u\n", read2(h));
 
         regionListOffset = read4(h);
